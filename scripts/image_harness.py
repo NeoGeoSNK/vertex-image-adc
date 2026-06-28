@@ -25,16 +25,29 @@ from typing import Any
 BASE64_RE = re.compile(r'^[A-Za-z0-9+/\n\r]+=*$')
 
 
+# 严格限制执行命令的白名单
+ALLOWED_COMMANDS = {
+    "gcloud_auth": ["gcloud", "auth"],
+    "curl": ["curl", "-sS"],
+    "gcloud_predict": ["gcloud", "ai", "endpoints", "predict"]
+}
+
+def run_safe_cmd(cmd_key: str, *args: str) -> subprocess.CompletedProcess:
+    base_cmd = ALLOWED_COMMANDS.get(cmd_key)
+    if not base_cmd:
+        raise ValueError(f"Unauthorized command execution requested: {cmd_key}")
+    
+    # 将参数列表安全传递给 subprocess，禁止 shell=True
+    full_cmd = base_cmd + list(args)
+    return subprocess.run(full_cmd, capture_output=True, text=True)
+
 def get_token(auth_mode: str) -> str:
-    if auth_mode == 'adc':
-        cmd = ['gcloud', 'auth', 'application-default', 'print-access-token']
-    else:
-        cmd = ['gcloud', 'auth', 'print-access-token']
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    args = ['application-default', 'print-access-token'] if auth_mode == 'adc' else ['print-access-token']
+    proc = run_safe_cmd('gcloud_auth', *args)
     if proc.returncode != 0:
         print(json.dumps({
             "ok": False, 
-            "error": "Failed to get auth token via gcloud. Ensure gcloud is installed and authenticated.", 
+            "error": "Failed to get auth token via gcloud.", 
             "debug": proc.stderr.strip()
         }))
         sys.exit(2)
@@ -125,10 +138,9 @@ def main():
         json.dump(payload, f, ensure_ascii=False)
         payload_path = f.name
 
-    url = f'https://aiplatform.googleapis.com/v1/projects/{args.project}/locations/{args.location}/publishers/google/models/{args.model}:generateContent'
-
-    cmd = ['curl', '-sS', '-X', 'POST', '-H', f'Authorization: Bearer {token}', '-H', 'Content-Type: application/json; charset=utf-8', '--data-binary', f'@{payload_path}', url]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    # Build curl command securely using safe executor
+    cmd_args = ['-X', 'POST', '-H', f'Authorization: Bearer {token}', '-H', 'Content-Type: application/json; charset=utf-8', '--data-binary', f'@{payload_path}', url]
+    proc = run_safe_cmd('curl', *cmd_args)
     
     # Cleanup payload tempfile
     try:
@@ -142,12 +154,12 @@ def main():
 
     resp_raw = proc.stdout
     
-    # Save response for debugging under system temp dir
-    temp_dir = tempfile.gettempdir()
-    debug_path = os.path.join(temp_dir, 'vertex_image_response.json')
+    # Save response for debugging to a unique random file
+    # This prevents predictable path injection and ensures isolation
     try:
-        with open(debug_path, 'w', encoding='utf-8') as f:
-            f.write(resp_raw)
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', encoding='utf-8', delete=False) as tmp_debug:
+            tmp_debug.write(resp_raw)
+            # Log the path if needed, or omit to avoid info leakage
     except Exception:
         pass
 
