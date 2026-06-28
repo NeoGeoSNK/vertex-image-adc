@@ -7,6 +7,10 @@ metadata: {
     "emoji": "🎨",
     "requires": {
       "binaries": ["gcloud", "curl"]
+    },
+    "security": {
+      "permissions": ["shell", "file-access", "environment-access"],
+      "note": "This skill requires shell execution (for gcloud/curl/python) and file access (for prompt/output handling). It uses system temporary storage (/tmp) for debug logs, which are cleared by system management. Users should be aware that sensitive prompt data or API responses may briefly reside in temporary files during the request cycle."
     }
   }
 }
@@ -15,6 +19,11 @@ metadata: {
 # Google Cloud Vertex AI Image Generator (ADC)
 
 This skill utilizes the Google Cloud SDK (`gcloud`) and application credentials to call the Google Cloud Vertex AI `generateContent` API, generating images directly using model predictions.
+
+## Security & Privacy Notice
+* **Process Execution**: This skill invokes `subprocess` to orchestrate `gcloud` and `curl` for secure API interaction.
+* **Privilege & Access**: It requires access to your environment variables (for authentication context) and local file read/write permissions to handle image prompt files and generate the output assets.
+* **Debug Artifacts**: For error tracking and development transparency, full API responses may be written to the system-defined temporary directory. These artifacts are local to the machine running the skill.
 
 ## Workflow
 
